@@ -1,0 +1,615 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  Search, Plus, Copy, Edit2, Trash2, Star, 
+  Moon, Sun, Download, Upload, Clock, Check, 
+  Tag, Folder, ExternalLink, PlaySquare, X,
+  History, Info, MessageSquare, ChevronRight
+} from 'lucide-react';
+
+
+// Default categories
+const CATEGORIES = ["Semua", "Marketing", "Coding", "Desain", "Penulisan", "Bisnis", "Lainnya"];
+
+// Initial dummy data to show off features
+const INITIAL_PROMPTS = [
+  {
+    id: '1',
+    title: 'Penulis Artikel Blog SEO',
+    content: 'Tuliskan artikel blog SEO-friendly sepanjang 800 kata tentang [Topik] dengan target audiens [Audiens]. Gunakan gaya bahasa [Gaya Bahasa] dan sertakan poin-poin penting. Berikan juga meta deskripsi yang menarik di akhir.',
+    description: 'Prompt untuk membuat artikel blog standar yang teroptimasi SEO.',
+    category: 'Penulisan',
+    tags: ['seo', 'blog', 'konten'],
+    isFavorite: true,
+    copyCount: 15,
+    history: [],
+    exampleOutput: 'Tentu, ini adalah draf artikel blog Anda tentang Tren Teknologi 2026...\n\nMeta Description: Temukan tren teknologi terbaru...',
+    createdAt: Date.now() - 100000
+  },
+  {
+    id: '2',
+    title: 'React Code Reviewer',
+    content: 'Bertindaklah sebagai Senior Frontend Engineer. Tolong review kode React berikut ini: \n\n[Kode React]\n\nFokus pada performa, aksesibilitas, dan clean code. Berikan saran perbaikan beserta contoh kodenya.',
+    description: 'Bantuan untuk code review spesifik framework React.',
+    category: 'Coding',
+    tags: ['react', 'review', 'frontend'],
+    isFavorite: false,
+    copyCount: 4,
+    history: [],
+    exampleOutput: '',
+    createdAt: Date.now()
+  }
+];
+
+// Utility to extract variables e.g., [Variable Name]
+const extractVariables = (text) => {
+  const regex = /\[(.*?)\]/g;
+  const matches = [];
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    if (!matches.includes(match[1])) {
+      matches.push(match[1]);
+    }
+  }
+  return matches;
+};
+
+
+export default function PromptVaultApp() {
+  // State
+  const [prompts, setPrompts] = useState([]);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState('Semua');
+  
+  // Modals UI State
+  const [isFormModalOpen, setIsFormModalOpen] = useState(false);
+  const [editingPrompt, setEditingPrompt] = useState(null);
+  const [isVarModalOpen, setIsVarModalOpen] = useState(false);
+  const [activeVarPrompt, setActiveVarPrompt] = useState(null);
+  
+  // Custom Toast State
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
+  // Load from LocalStorage on mount
+  useEffect(() => {
+    const savedPrompts = localStorage.getItem('promptVault_data');
+    if (savedPrompts) {
+      setPrompts(JSON.parse(savedPrompts));
+    } else {
+      setPrompts(INITIAL_PROMPTS);
+    }
+
+    const savedTheme = localStorage.getItem('promptVault_theme');
+    if (savedTheme === 'dark') {
+      setIsDarkMode(true);
+    }
+  }, []);
+
+  // Save to LocalStorage when prompts change
+  useEffect(() => {
+    if (prompts.length > 0) {
+      localStorage.setItem('promptVault_data', JSON.stringify(prompts));
+    }
+  }, [prompts]);
+
+  // Apply Dark Mode Class to root
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('promptVault_theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('promptVault_theme', 'light');
+    }
+  }, [isDarkMode]);
+
+  const showToast = (message, type = 'success') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
+  };
+
+
+  const handleSavePrompt = (promptData) => {
+    if (editingPrompt) {
+      // Edit existing
+      setPrompts(prev => prev.map(p => {
+        if (p.id === editingPrompt.id) {
+          // Check if content changed to save history
+          let newHistory = p.history || [];
+          if (p.content !== promptData.content) {
+            newHistory = [{ content: p.content, date: Date.now() }, ...newHistory].slice(0, 5); // Keep last 5
+          }
+          return { ...p, ...promptData, history: newHistory, updatedAt: Date.now() };
+        }
+        return p;
+      }));
+      showToast('Prompt berhasil diperbarui!');
+    } else {
+      // Add new
+      const newPrompt = {
+        ...promptData,
+        id: crypto.randomUUID(),
+        isFavorite: false,
+        copyCount: 0,
+        history: [],
+        createdAt: Date.now()
+      };
+      setPrompts(prev => [newPrompt, ...prev]);
+      showToast('Prompt baru berhasil ditambahkan!');
+    }
+    closeFormModal();
+  };
+
+  const handleDeletePrompt = (id) => {
+    setPrompts(prev => prev.filter(p => p.id !== id));
+    showToast('Prompt dihapus.', 'info');
+  };
+
+  const toggleFavorite = (id) => {
+    setPrompts(prev => prev.map(p => 
+      p.id === id ? { ...p, isFavorite: !p.isFavorite } : p
+    ));
+  };
+
+  const incrementCopyCount = (id) => {
+    setPrompts(prev => prev.map(p => 
+      p.id === id ? { ...p, copyCount: (p.copyCount || 0) + 1 } : p
+    ));
+  };
+
+  const exportData = () => {
+    const dataStr = JSON.stringify(prompts, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `PromptVault_Backup_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    showToast('Data berhasil diekspor!');
+  };
+
+  const importData = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const imported = JSON.parse(e.target.result);
+          if (Array.isArray(imported)) {
+            setPrompts(imported);
+            showToast('Data berhasil diimpor!');
+          }
+        } catch (error) {
+          showToast('File tidak valid!', 'error');
+        }
+      };
+      reader.readAsText(file);
+    }
+    event.target.value = ''; // Reset input
+  };
+
+
+  const initiateCopy = (prompt) => {
+    const variables = extractVariables(prompt.content);
+    if (variables.length > 0) {
+      setActiveVarPrompt({ prompt, variables });
+      setIsVarModalOpen(true);
+    } else {
+      executeCopy(prompt.content, prompt.id);
+    }
+  };
+
+  const executeCopy = async (text, id) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      incrementCopyCount(id);
+      showToast('Prompt disalin ke clipboard!');
+      setIsVarModalOpen(false);
+    } catch (err) {
+      showToast('Gagal menyalin.', 'error');
+    }
+  };
+
+  // Derived State for Filtering
+  const filteredPrompts = useMemo(() => {
+    return prompts.filter(p => {
+      const matchesSearch = p.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                            p.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            p.tags?.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchesCategory = activeCategory === 'Semua' || (activeCategory === 'Favorit' && p.isFavorite) || p.category === activeCategory;
+      return matchesSearch && matchesCategory;
+    }).sort((a, b) => b.isFavorite - a.isFavorite || b.createdAt - a.createdAt); // Favorites first, then newest
+  }, [prompts, searchQuery, activeCategory]);
+
+  const openFormModal = (prompt = null) => {
+    setEditingPrompt(prompt);
+    setIsFormModalOpen(true);
+  };
+  const closeFormModal = () => {
+    setEditingPrompt(null);
+    setIsFormModalOpen(false);
+  };
+
+
+  const FormModal = () => {
+    const [formData, setFormData] = useState(editingPrompt || {
+      title: '', content: '', description: '', category: 'Lainnya', tags: [], exampleOutput: ''
+    });
+    const [tagInput, setTagInput] = useState('');
+
+    const handleAddTag = (e) => {
+      if (e.key === 'Enter' && tagInput.trim()) {
+        e.preventDefault();
+        if (!formData.tags.includes(tagInput.trim())) {
+          setFormData({ ...formData, tags: [...formData.tags, tagInput.trim()] });
+        }
+        setTagInput('');
+      }
+    };
+
+    const removeTag = (tagToRemove) => {
+      setFormData({ ...formData, tags: formData.tags.filter(t => t !== tagToRemove) });
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl border border-gray-200 dark:border-gray-700">
+          <div className="flex justify-between items-center p-6 border-b border-gray-100 dark:border-gray-700">
+            <h2 className="text-xl font-bold text-gray-800 dark:text-white">
+              {editingPrompt ? 'Edit Prompt' : 'Tambah Prompt Baru'}
+            </h2>
+            <button onClick={closeFormModal} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white transition">
+              <X size={24} />
+            </button>
+          </div>
+          
+          <div className="p-6 overflow-y-auto space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Judul Prompt</label>
+              <input 
+                type="text" required
+                value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})}
+                className="w-full p-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="Misal: Penulis Artikel Blog SEO"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Isi Prompt <span className="text-xs font-normal text-gray-500">(Gunakan [Kata] untuk variabel/placeholder)</span>
+              </label>
+              <textarea 
+                required rows={5}
+                value={formData.content} onChange={e => setFormData({...formData, content: e.target.value})}
+                className="w-full p-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm"
+                placeholder="Tuliskan artikel tentang [Topik]..."
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Deskripsi Singkat</label>
+                <input 
+                  type="text" 
+                  value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})}
+                  className="w-full p-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white outline-none"
+                  placeholder="Penjelasan singkat kegunaan prompt..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kategori</label>
+                <select 
+                  value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}
+                  className="w-full p-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white outline-none"
+                >
+                  {CATEGORIES.filter(c => c !== 'Semua' && c !== 'Favorit').map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tags (Tekan Enter)</label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {formData.tags.map(tag => (
+                  <span key={tag} className="flex items-center gap-1 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 px-3 py-1 rounded-full text-xs font-medium">
+                    {tag}
+                    <button type="button" onClick={() => removeTag(tag)} className="hover:text-red-500"><X size={12}/></button>
+                  </span>
+                ))}
+              </div>
+              <input 
+                type="text" 
+                value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={handleAddTag}
+                className="w-full p-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white outline-none"
+                placeholder="Misal: seo, marketing, copy..."
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Contoh Output / Playground (Opsional)</label>
+              <textarea 
+                rows={3}
+                value={formData.exampleOutput || ''} onChange={e => setFormData({...formData, exampleOutput: e.target.value})}
+                className="w-full p-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white outline-none text-sm"
+                placeholder="Catat hasil terbaik dari prompt ini sebagai referensi..."
+              />
+            </div>
+          </div>
+          
+          <div className="p-6 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-3 bg-gray-50 dark:bg-gray-800/50 rounded-b-2xl">
+            <button onClick={closeFormModal} className="px-5 py-2.5 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 font-medium transition">
+              Batal
+            </button>
+            <button 
+              onClick={() => handleSavePrompt(formData)} 
+              disabled={!formData.title || !formData.content}
+              className="px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {editingPrompt ? 'Simpan Perubahan' : 'Simpan Prompt'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+
+  const VariableFillModal = () => {
+    if (!activeVarPrompt) return null;
+    const { prompt, variables } = activeVarPrompt;
+    
+    // Initial state with empty values for variables
+    const [varValues, setVarValues] = useState(
+      variables.reduce((acc, v) => ({ ...acc, [v]: '' }), {})
+    );
+
+    const handleFillAndCopy = () => {
+      let finalContent = prompt.content;
+      variables.forEach(v => {
+        // Replace globally. If empty, keep the original placeholder.
+        const valueToReplace = varValues[v] || `[${v}]`;
+        // Escape special chars for regex just in case
+        const regex = new RegExp(`\\[${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]`, 'g');
+        finalContent = finalContent.replace(regex, valueToReplace);
+      });
+      executeCopy(finalContent, prompt.id);
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div className="bg-blue-600 p-6 text-white">
+            <h3 className="text-xl font-bold mb-1 flex items-center gap-2">
+              <PlaySquare size={20} /> Isi Variabel
+            </h3>
+            <p className="text-blue-100 text-sm">Prompt ini membutuhkan beberapa informasi spesifik sebelum disalin.</p>
+          </div>
+          
+          <div className="p-6 space-y-4">
+            {variables.map(v => (
+              <div key={v}>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">{v}</label>
+                <input 
+                  type="text" autoFocus={variables[0] === v}
+                  value={varValues[v]} onChange={e => setVarValues({...varValues, [v]: e.target.value})}
+                  className="w-full p-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder={`Masukkan ${v}...`}
+                />
+              </div>
+            ))}
+          </div>
+          
+          <div className="p-6 pt-2 flex justify-end gap-3">
+            <button onClick={() => setIsVarModalOpen(false)} className="px-4 py-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+              Batal
+            </button>
+            <button onClick={handleFillAndCopy} className="px-4 py-2 flex items-center gap-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition shadow-md shadow-blue-500/30">
+              <Copy size={18} /> Copy Prompt
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+
+  return (
+    <div className={`min-h-screen transition-colors duration-200 ${isDarkMode ? 'dark bg-[#0f172a] text-gray-100' : 'bg-gray-50 text-gray-900'}`}>
+      
+      {/* Toast Notification */}
+      <div className={`fixed top-5 left-1/2 -translate-x-1/2 z-[100] transition-all duration-300 flex items-center gap-2 px-4 py-3 rounded-xl shadow-xl font-medium ${toast.show ? 'translate-y-0 opacity-100' : '-translate-y-20 opacity-0 pointer-events-none'} ${toast.type === 'error' ? 'bg-red-500 text-white' : toast.type === 'info' ? 'bg-blue-500 text-white' : 'bg-green-500 text-white'}`}>
+        <Check size={18} /> {toast.message}
+      </div>
+
+      {isFormModalOpen && <FormModal />}
+      {isVarModalOpen && <VariableFillModal />}
+
+      {/* Header/Navbar */}
+      <header className="sticky top-0 z-30 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 px-6 py-4 flex flex-col md:flex-row gap-4 justify-between items-center">
+        <div className="flex items-center gap-3">
+          <div className="bg-blue-600 text-white p-2 rounded-xl shadow-lg shadow-blue-600/20">
+            <Folder size={24} strokeWidth={2.5} />
+          </div>
+          <h1 className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-400">
+            Prompt Vault
+          </h1>
+        </div>
+        
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <div className="relative flex-1 md:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <input 
+              type="text" placeholder="Cari prompt, tag, atau isi..."
+              value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 rounded-full border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 focus:bg-white dark:focus:bg-gray-700 outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm"
+            />
+          </div>
+          
+          <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2.5 rounded-full bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-700 transition" title="Toggle Theme">
+            {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+          
+          <button onClick={() => openFormModal()} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-full font-medium transition shadow-lg shadow-blue-500/30 text-sm whitespace-nowrap">
+            <Plus size={18} /> <span className="hidden sm:inline">Tambah Prompt</span>
+          </button>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col lg:flex-row gap-8">
+        
+        {/* Sidebar Controls */}
+        <aside className="w-full lg:w-64 shrink-0 space-y-6">
+          
+          {/* Categories */}
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 px-2">Kategori</h3>
+            <nav className="space-y-1">
+              <button 
+                onClick={() => setActiveCategory('Favorit')}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeCategory === 'Favorit' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+              >
+                <div className="flex items-center gap-2"><Star size={16} className={activeCategory === 'Favorit' ? 'fill-current' : ''}/> Favorit</div>
+              </button>
+              {CATEGORIES.map(cat => (
+                <button 
+                  key={cat} onClick={() => setActiveCategory(cat)}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeCategory === cat ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                >
+                  {cat}
+                  <span className="bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 text-xs px-2 py-0.5 rounded-full">
+                    {cat === 'Semua' ? prompts.length : prompts.filter(p => p.category === cat).length}
+                  </span>
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          {/* Actions & Tools */}
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 px-2">Alat & Backup</h3>
+            <div className="space-y-2">
+              <button onClick={exportData} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                <Download size={16} /> Export (JSON)
+              </button>
+              <label className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition cursor-pointer">
+                <Upload size={16} /> Import (JSON)
+                <input type="file" accept=".json" className="hidden" onChange={importData} />
+              </label>
+              
+              <div className="border-t border-gray-100 dark:border-gray-700 my-2 pt-2"></div>
+              
+              <a href="https://chat.openai.com" target="_blank" rel="noreferrer" className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/40 transition">
+                <span className="flex items-center gap-2"><MessageSquare size={16}/> Buka ChatGPT</span> <ExternalLink size={14}/>
+              </a>
+              <a href="https://claude.ai" target="_blank" rel="noreferrer" className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium text-orange-700 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition">
+                <span className="flex items-center gap-2"><MessageSquare size={16}/> Buka Claude</span> <ExternalLink size={14}/>
+              </a>
+            </div>
+          </div>
+        </aside>
+
+        <section className="flex-1">
+          <div className="mb-4 flex justify-between items-end">
+            <div>
+              <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">{activeCategory}</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Menampilkan {filteredPrompts.length} prompt</p>
+            </div>
+          </div>
+
+          {filteredPrompts.length === 0 ? (
+            <div className="bg-white dark:bg-gray-800 rounded-3xl p-12 text-center border border-dashed border-gray-300 dark:border-gray-700">
+              <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400">
+                <Search size={32} />
+              </div>
+              <h3 className="text-lg font-bold text-gray-800 dark:text-gray-200 mb-1">Tidak ada prompt ditemukan</h3>
+              <p className="text-gray-500 dark:text-gray-400 mb-6 max-w-sm mx-auto">Coba gunakan kata kunci pencarian lain atau tambahkan prompt baru ke koleksi Anda.</p>
+              <button onClick={() => openFormModal()} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-full font-medium transition shadow-lg shadow-blue-500/30">
+                Tambah Prompt Baru
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              {filteredPrompts.map(prompt => (
+                <div key={prompt.id} className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 hover:shadow-md transition-shadow flex flex-col group overflow-hidden">
+                  
+                  {/* Card Header */}
+                  <div className="p-5 border-b border-gray-50 dark:border-gray-700/50 flex justify-between items-start gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded text-nowrap">
+                          {prompt.category}
+                        </span>
+                        {prompt.tags && prompt.tags.slice(0,2).map(tag => (
+                          <span key={tag} className="text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded truncate">#{tag}</span>
+                        ))}
+                      </div>
+                      <h3 className="font-bold text-lg text-gray-900 dark:text-white truncate" title={prompt.title}>{prompt.title}</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-1 mt-0.5" title={prompt.description}>{prompt.description}</p>
+                    </div>
+                    
+                    <button 
+                      onClick={() => toggleFavorite(prompt.id)}
+                      className={`shrink-0 p-2 rounded-full transition ${prompt.isFavorite ? 'text-amber-400 bg-amber-50 dark:bg-amber-400/10' : 'text-gray-300 hover:text-amber-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                    >
+                      <Star size={20} className={prompt.isFavorite ? 'fill-current' : ''} />
+                    </button>
+                  </div>
+
+                  {/* Card Body - Content */}
+                  <div className="p-5 bg-gray-50/50 dark:bg-gray-900/20 flex-1 relative group-hover:bg-gray-50 dark:group-hover:bg-gray-900/40 transition-colors">
+                    <div className="text-sm font-mono text-gray-700 dark:text-gray-300 whitespace-pre-wrap line-clamp-4 relative z-10">
+                      {/* Highlight variables visually in UI */}
+                      {prompt.content.split(/(\[.*?\])/g).map((part, i) => 
+                        part.startsWith('[') && part.endsWith(']') ? (
+                          <span key={i} className="text-blue-600 dark:text-blue-400 font-bold bg-blue-100 dark:bg-blue-900/40 px-1 rounded mx-0.5">{part}</span>
+                        ) : part
+                      )}
+                    </div>
+                    
+                    {/* Big Overlay Copy Button on Hover */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-white via-white/80 dark:from-gray-800 dark:via-gray-800/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-4 z-20">
+                       <button 
+                        onClick={() => initiateCopy(prompt)}
+                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-full font-medium shadow-lg shadow-blue-500/40 transform translate-y-4 group-hover:translate-y-0 transition-all"
+                      >
+                        {extractVariables(prompt.content).length > 0 ? <PlaySquare size={18}/> : <Copy size={18}/>}
+                        {extractVariables(prompt.content).length > 0 ? 'Isi Variabel & Copy' : 'Copy Prompt'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Card Footer - Meta & Actions */}
+                  <div className="px-5 py-3 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center text-xs text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800">
+                    <div className="flex gap-4">
+                      <span className="flex items-center gap-1" title="Berapa kali dicopy"><Copy size={14} /> {prompt.copyCount || 0}</span>
+                      {prompt.history && prompt.history.length > 0 && (
+                        <span className="flex items-center gap-1 text-blue-500" title="Memiliki riwayat revisi"><History size={14} /> Revisi</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => openFormModal(prompt)} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-600 dark:text-gray-300 transition" title="Edit">
+                        <Edit2 size={16} />
+                      </button>
+                      <button 
+                        onClick={() => {
+                          if (window.confirm('Yakin ingin menghapus prompt ini?')) handleDeletePrompt(prompt.id)
+                        }} 
+                        className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 rounded text-red-500 transition" title="Hapus"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+      </main>
+    </div>
+  );
+}
